@@ -828,10 +828,15 @@ function initializeExtension(context: vscode.ExtensionContext) {
           try {
             await vscode.commands.executeCommand(action.command);
           } catch {
-            vscode.window.showWarningMessage(
-              `Salesforce Org Management extension is required for "${selectedItem.label}". ` +
-              'Install it from the Extensions view.'
+            const openExtButton = 'Salesforce Org Management';
+            const result = await vscode.window.showInformationMessage(
+              'This action requires the official Salesforce Org Management extension to be enabled.',
+              openExtButton
             );
+            if (result === openExtButton) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+              await vscode.commands.executeCommand('extension.open', 'salesforce.salesforcedx-vscode-org');
+            }
           }
         } else {
           switchToOrg(selectedItem.label, statusBarItem, openOrgItem, dedicatedManager);
