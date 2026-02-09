@@ -696,6 +696,15 @@ function initializeExtension(context: vscode.ExtensionContext) {
   };
 
   // Command to show QuickPick with filtered aliases
+  // SFDX action items matching official extension (label -> vs code command)
+  const SFDX_ACTION_ITEMS: Array<{ label: string; command: string }> = [
+    { label: 'SFDX: Authorize an Org', command: 'sf.org.login.web' },
+    { label: 'SFDX: Authorize a Dev Hub', command: 'sf.org.login.web.dev.hub' },
+    { label: 'SFDX: Create a Default Scratch Org...', command: 'sf.org.create' },
+    { label: 'SFDX: Authorize an Org using Session ID', command: 'sf.org.login.access.token' },
+    { label: 'SFDX: Remove Deleted and Expired Orgs', command: 'sf.org.list.clean' }
+  ];
+
   let disposable = vscode.commands.registerCommand('salesforce-org-quick-pick.switchOrg', async function () {
     // Get fresh filtered aliases in case configuration changed
     const { aliases: currentAliases, aliasMap } = getSalesforceAliases();
@@ -703,7 +712,7 @@ function initializeExtension(context: vscode.ExtensionContext) {
 
     // Create QuickPick items with alias as label and username as subtitle
     const currentDefaultOrg = getCurrentDefaultOrg();
-    const quickPickItems = filteredCurrentAliases.map(alias => {
+    const orgItems = filteredCurrentAliases.map(alias => {
       const username = aliasMap.get(alias) || alias;
       const isCurrentTargetOrg = currentDefaultOrg === alias || currentDefaultOrg === username;
       return {
@@ -723,26 +732,24 @@ function initializeExtension(context: vscode.ExtensionContext) {
       };
     });
 
-    if (quickPickItems.length === 0) {
-      // Distinguish between no orgs retrieved vs. no orgs matching filter
-      const { aliases: allAliases } = getSalesforceAliases();
-      if (allAliases.length === 0) {
-        vscode.window.showWarningMessage('No Salesforce orgs found. Make sure you have authorized orgs using the Salesforce CLI.');
-      } else {
-        const filters = getNormalizedOrgFilters();
-        if (filters && filters.length > 0) {
-          vscode.window.showWarningMessage(`No Salesforce orgs match the configured filters: ${filters.join(', ')}`);
-        } else {
-          vscode.window.showWarningMessage('No Salesforce orgs found. Make sure you have authorized orgs using the Salesforce CLI.');
-        }
-      }
-      return;
-    }
+    const sfdxItems: vscode.QuickPickItem[] = SFDX_ACTION_ITEMS.map(({ label }) => ({
+      label,
+      iconPath: new vscode.ThemeIcon('add')
+    }));
+    const separatorItem: vscode.QuickPickItem = {
+      label: '',
+      kind: vscode.QuickPickItemKind.Separator
+    };
+    const config = vscode.workspace.getConfiguration('salesforceOrgQuickPick');
+    const organizationsFirst = config.get('organizationsFirst', true);
+    const quickPickItems: vscode.QuickPickItem[] = organizationsFirst
+      ? (orgItems.length > 0 ? [...orgItems, separatorItem, ...sfdxItems] : sfdxItems)
+      : [...sfdxItems, separatorItem, ...orgItems];
 
     const quickPick = vscode.window.createQuickPick();
     quickPick.items = quickPickItems;
     quickPick.title = 'Salesforce Org Quick Pick';
-    quickPick.placeholder = 'Select a Salesforce org to switch to';
+    quickPick.placeholder = 'Select an org to set as default';
     quickPick.matchOnDescription = true;
     quickPick.matchOnDetail = true;
 
@@ -815,7 +822,20 @@ function initializeExtension(context: vscode.ExtensionContext) {
     quickPick.onDidAccept(async () => {
       const selectedItem = quickPick.selectedItems[0];
       if (selectedItem) {
-        switchToOrg(selectedItem.label, statusBarItem, openOrgItem, dedicatedManager);
+        const action = SFDX_ACTION_ITEMS.find(a => a.label === selectedItem.label);
+        if (action) {
+          quickPick.hide();
+          try {
+            await vscode.commands.executeCommand(action.command);
+          } catch {
+            vscode.window.showWarningMessage(
+              `Salesforce Org Management extension is required for "${selectedItem.label}". ` +
+              'Install it from the Extensions view.'
+            );
+          }
+        } else {
+          switchToOrg(selectedItem.label, statusBarItem, openOrgItem, dedicatedManager);
+        }
       }
       quickPick.hide();
     });

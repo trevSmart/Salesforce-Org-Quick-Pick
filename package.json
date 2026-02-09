@@ -2,7 +2,7 @@
   "name": "salesforce-org-quick-pick",
   "displayName": "Salesforce Org Quick Pick",
   "description": "Quickly switch between Salesforce orgs from the status bar without breaking your flow.",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "license": "MIT",
   "author": "trevSmart",
   "publisher": "trevSmart",
@@ -125,6 +125,11 @@
           ],
           "default": "always",
           "description": "When to highlight the current target org in the status bar"
+        },
+        "salesforceOrgQuickPick.organizationsFirst": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the organization list at the top of the picker, with SFDX commands (Authorize, Create Scratch Org, etc.) at the bottom"
         }
       }
     }
