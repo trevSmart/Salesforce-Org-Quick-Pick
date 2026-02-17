@@ -705,46 +705,72 @@ function initializeExtension(context: vscode.ExtensionContext) {
     { label: 'SFDX: Remove Deleted and Expired Orgs', command: 'sf.org.list.clean' }
   ];
 
+  const SHOW_ALL_ORGS_LABEL = 'Show all authorized orgs';
+  const SHOW_FILTERED_ORGS_LABEL = 'Show filtered orgs only';
+
   let disposable = vscode.commands.registerCommand('salesforce-org-quick-pick.switchOrg', async function () {
     // Get fresh filtered aliases in case configuration changed
     const { aliases: currentAliases, aliasMap } = getSalesforceAliases();
     const filteredCurrentAliases = filterAliases(currentAliases);
+    const filters = getNormalizedOrgFilters();
+    const isFiltering = filters.length > 0 && filteredCurrentAliases.length < currentAliases.length;
 
-    // Create QuickPick items with alias as label and username as subtitle
-    const currentDefaultOrg = getCurrentDefaultOrg();
-    const orgItems = filteredCurrentAliases.map(alias => {
-      const username = aliasMap.get(alias) || alias;
-      const isCurrentTargetOrg = currentDefaultOrg === alias || currentDefaultOrg === username;
-      return {
-        label: alias,
-        detail: username,
-        iconPath: new vscode.ThemeIcon(isCurrentTargetOrg ? 'plug' : 'cloud'),
-        buttons: [
-          {
-            iconPath: new vscode.ThemeIcon('window'),
-            tooltip: 'Open org in browser'
-          },
-          {
-            iconPath: dedicatedManager.hasDedicatedItem(alias) ? new vscode.ThemeIcon('remove') : new vscode.ThemeIcon('add'),
-            tooltip: dedicatedManager.hasDedicatedItem(alias) ? 'Remove dedicated button from the status bar' : 'Add dedicated button to the status bar'
-          }
-        ]
-      };
-    });
-
-    const sfdxItems: vscode.QuickPickItem[] = SFDX_ACTION_ITEMS.map(({ label }) => ({
-      label,
-      iconPath: new vscode.ThemeIcon('add')
-    }));
-    const separatorItem: vscode.QuickPickItem = {
-      label: '',
-      kind: vscode.QuickPickItemKind.Separator
+    const buildOrgItemsFromAliases = (aliasesToShow: string[]) => {
+      const currentDefaultOrg = getCurrentDefaultOrg();
+      const sortedAliases = [...aliasesToShow].sort((a, b) => {
+        const aIsCurrent = currentDefaultOrg && (currentDefaultOrg === a || currentDefaultOrg === aliasMap.get(a));
+        const bIsCurrent = currentDefaultOrg && (currentDefaultOrg === b || currentDefaultOrg === aliasMap.get(b));
+        if (aIsCurrent && !bIsCurrent) return -1;
+        if (!aIsCurrent && bIsCurrent) return 1;
+        return 0;
+      });
+      return sortedAliases.map(alias => {
+        const username = aliasMap.get(alias) || alias;
+        const isCurrentTargetOrg = currentDefaultOrg === alias || currentDefaultOrg === username;
+        return {
+          label: alias,
+          detail: username,
+          iconPath: new vscode.ThemeIcon(isCurrentTargetOrg ? 'plug' : 'cloud'),
+          buttons: [
+            { iconPath: new vscode.ThemeIcon('window'), tooltip: 'Open org in browser' },
+            {
+              iconPath: dedicatedManager.hasDedicatedItem(alias) ? new vscode.ThemeIcon('remove') : new vscode.ThemeIcon('add'),
+              tooltip: dedicatedManager.hasDedicatedItem(alias) ? 'Remove dedicated button from the status bar' : 'Add dedicated button to the status bar'
+            }
+          ]
+        };
+      });
     };
-    const config = vscode.workspace.getConfiguration('salesforceOrgQuickPick');
-    const organizationsFirst = config.get('organizationsFirst', true);
-    const quickPickItems: vscode.QuickPickItem[] = organizationsFirst
-      ? (orgItems.length > 0 ? [...orgItems, separatorItem, ...sfdxItems] : sfdxItems)
-      : [...sfdxItems, separatorItem, ...orgItems];
+
+    const buildQuickPickItems = (aliasesToShow: string[], showAllMode: boolean): vscode.QuickPickItem[] => {
+      const orgItems = buildOrgItemsFromAliases(aliasesToShow);
+      const sfdxItems: vscode.QuickPickItem[] = SFDX_ACTION_ITEMS.map(({ label }) => ({
+        label,
+        iconPath: new vscode.ThemeIcon('add')
+      }));
+      const separatorItem: vscode.QuickPickItem = { label: '', kind: vscode.QuickPickItemKind.Separator };
+      const config = vscode.workspace.getConfiguration('salesforceOrgQuickPick');
+      const organizationsFirst = config.get('organizationsFirst', true);
+
+      const toggleFilterItem: vscode.QuickPickItem = {
+        label: showAllMode ? SHOW_FILTERED_ORGS_LABEL : SHOW_ALL_ORGS_LABEL,
+        iconPath: new vscode.ThemeIcon('three-bars')
+      };
+      const showToggle = isFiltering;
+
+      let baseItems: vscode.QuickPickItem[];
+      if (organizationsFirst) {
+        baseItems = orgItems.length > 0
+          ? [...orgItems, separatorItem, ...(showToggle ? [toggleFilterItem] : []), ...sfdxItems]
+          : sfdxItems;
+      } else {
+        baseItems = [...sfdxItems, separatorItem, ...(showToggle ? [toggleFilterItem] : []), ...orgItems];
+      }
+      return baseItems;
+    };
+
+    let showingAllOrgs = false;
+    let quickPickItems = buildQuickPickItems(filteredCurrentAliases, showingAllOrgs);
 
     const quickPick = vscode.window.createQuickPick();
     quickPick.items = quickPickItems;
@@ -822,6 +848,18 @@ function initializeExtension(context: vscode.ExtensionContext) {
     quickPick.onDidAccept(async () => {
       const selectedItem = quickPick.selectedItems[0];
       if (selectedItem) {
+        if (selectedItem.label === SHOW_ALL_ORGS_LABEL) {
+          showingAllOrgs = true;
+          quickPick.items = buildQuickPickItems(currentAliases, showingAllOrgs);
+          quickPick.placeholder = 'Showing all authorized orgs (filter bypassed until you close)';
+          return;
+        }
+        if (selectedItem.label === SHOW_FILTERED_ORGS_LABEL) {
+          showingAllOrgs = false;
+          quickPick.items = buildQuickPickItems(filteredCurrentAliases, showingAllOrgs);
+          quickPick.placeholder = 'Select an org to set as default';
+          return;
+        }
         const action = SFDX_ACTION_ITEMS.find(a => a.label === selectedItem.label);
         if (action) {
           quickPick.hide();
