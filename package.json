@@ -130,6 +130,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show the organization list at the top of the picker, with SFDX commands (Authorize, Create Scratch Org, etc.) at the bottom"
+        },
+        "salesforceOrgQuickPick.showOutputOnActivation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the extension output channel when the extension activates. Intended only for debugging the extension."
         }
       }
     }
@@ -143,7 +148,8 @@
     "test": "node ./out/test/runTest.js",
     "package": "mkdir -p dist && npx vsce package --out dist",
     "clean": "rm -rf dist",
-    "install-extension": "npm run compile && npm run clean && npm run package && cursor --install-extension dist/salesforce-org-quick-pick-*.vsix --force"
+    "install-extension": "npm run compile && npm run clean && npm run package && cursor --install-extension dist/salesforce-org-quick-pick-*.vsix --force",
+    "version:patch": "npm version patch"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.1",

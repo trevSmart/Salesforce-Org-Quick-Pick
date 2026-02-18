@@ -627,8 +627,10 @@ function initializeExtension(context: vscode.ExtensionContext) {
   // Make output channel available globally for logging
   (global as any).sfOrgOutputChannel = outputChannel;
 
-  // Show output channel if there are issues
-  outputChannel.show();
+  const showOutputOnActivation = vscode.workspace.getConfiguration('salesforceOrgQuickPick').get<boolean>('showOutputOnActivation', false);
+  if (showOutputOnActivation) {
+    outputChannel.show();
+  }
 
   // Get Salesforce aliases and username mapping
   const { aliases: allAliases, aliasMap } = getSalesforceAliases();
