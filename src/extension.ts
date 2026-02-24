@@ -89,7 +89,7 @@ class DedicatedStatusBarManager {
 
     // Calculate priority based on order (higher order = higher priority)
     // If not found in filters (-1), use a low priority (high number)
-    const priority = order === -1 ? 50 : 50 + order;
+    const priority = order === -1 ? 28000 : 28000 + order;
 
     const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, priority);
     item.text = getAliasDisplayLabel(alias);
@@ -185,7 +185,7 @@ class DedicatedStatusBarManager {
 
     this.dedicatedItems.forEach((item, alias) => {
       const order = filters.findIndex(f => simpleGlobMatch(alias, f));
-      const newPriority = order === -1 ? 50 : 50 + order;
+      const newPriority = order === -1 ? 28000 : 28000 + order;
 
       // Recreate the item with new priority
       item.hide();
@@ -643,12 +643,12 @@ function initializeExtension(context: vscode.ExtensionContext) {
   dedicatedManager.loadPersistedOrgs(aliasMap);
 
   // Create status bar item for opening current org (at the end of our block)
-  const openOrgItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 3000);
+  const openOrgItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 30000);
   openOrgItem.command = 'salesforce-org-quick-pick.openCurrentOrg';
   openOrgItem.tooltip = 'Open default org in browser';
 
   // Create status bar item for org switching (after dedicated items)
-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 54);
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 29000);
   statusBarItem.command = 'salesforce-org-quick-pick.switchOrg';
 
   // Initial update from config
@@ -909,7 +909,7 @@ function initializeExtension(context: vscode.ExtensionContext) {
         const browser = config.get('browser', 'default');
 
         // Build the command with browser option if not default
-        let command = `sf org open --target-org ${currentOrg}`;
+        let command = `sf org open --target-org "${currentOrg}"`;
         if (browser !== 'default') {
           command += ` --browser ${browser}`;
         }
