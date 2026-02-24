@@ -2,7 +2,7 @@
   "name": "salesforce-org-quick-pick",
   "displayName": "Salesforce Org Quick Pick",
   "description": "Quickly switch between Salesforce orgs from the status bar without breaking your flow.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "license": "MIT",
   "author": "trevSmart",
   "publisher": "trevSmart",
@@ -154,7 +154,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.1",
     "@types/node": "25.x",
-    "@types/vscode": "^1.109.0",
+    "@types/vscode": "^1.64.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.53.1",
     "@vscode/test-electron": "^2.2.3",
