@@ -14,6 +14,59 @@ function log(message: string) {
 }
 
 /**
+ * Manages the main status bar items for the extension
+ */
+class MainStatusBarManager {
+  private context: vscode.ExtensionContext;
+  private statusBarItem: vscode.StatusBarItem;
+  private openOrgItem: vscode.StatusBarItem;
+
+  constructor(context: vscode.ExtensionContext) {
+    this.context = context;
+    this.statusBarItem = this.createStatusBarItem(30.97);
+    this.openOrgItem = this.createStatusBarItem(30.98);
+    
+    this.statusBarItem.command = 'salesforce-org-quick-pick.switchOrg';
+    this.openOrgItem.command = 'salesforce-org-quick-pick.openCurrentOrg';
+    this.openOrgItem.tooltip = 'Open default org in browser';
+  }
+
+  private createStatusBarItem(priority: number): vscode.StatusBarItem {
+    const alignment = getStatusBarAlignment();
+    return vscode.window.createStatusBarItem(alignment, priority);
+  }
+
+  recreateItems() {
+    this.statusBarItem.hide();
+    this.statusBarItem.dispose();
+    this.openOrgItem.hide();
+    this.openOrgItem.dispose();
+
+    this.statusBarItem = this.createStatusBarItem(30.97);
+    this.openOrgItem = this.createStatusBarItem(30.98);
+    
+    this.statusBarItem.command = 'salesforce-org-quick-pick.switchOrg';
+    this.openOrgItem.command = 'salesforce-org-quick-pick.openCurrentOrg';
+    this.openOrgItem.tooltip = 'Open default org in browser';
+  }
+
+  getStatusBarItem(): vscode.StatusBarItem {
+    return this.statusBarItem;
+  }
+
+  getOpenOrgItem(): vscode.StatusBarItem {
+    return this.openOrgItem;
+  }
+
+  dispose() {
+    this.statusBarItem.hide();
+    this.statusBarItem.dispose();
+    this.openOrgItem.hide();
+    this.openOrgItem.dispose();
+  }
+}
+
+/**
  * Manages dedicated status bar items for quick org access
  */
 class DedicatedStatusBarManager {
@@ -24,6 +77,14 @@ class DedicatedStatusBarManager {
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
+  }
+
+  /**
+   * Creates a status bar item with proper alignment based on configuration
+   */
+  private createStatusBarItem(priority: number): vscode.StatusBarItem {
+    const alignment = getStatusBarAlignment();
+    return vscode.window.createStatusBarItem(alignment, priority);
   }
 
   /**
@@ -91,7 +152,7 @@ class DedicatedStatusBarManager {
     // If not found in filters (-1), use a low priority (high number)
     const priority = order === -1 ? 30.99 : 30 + (order * 0.01);
 
-    const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, priority);
+    const item = this.createStatusBarItem(priority);
     item.text = getAliasDisplayLabel(alias);
     item.tooltip = `Switch to ${alias} (${username})`;
     item.command = {
@@ -191,7 +252,7 @@ class DedicatedStatusBarManager {
       item.hide();
       item.dispose();
 
-      const newItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, newPriority);
+      const newItem = this.createStatusBarItem(newPriority);
       newItem.text = getAliasDisplayLabel(alias);
       newItem.tooltip = item.tooltip;
       newItem.command = item.command;
@@ -415,6 +476,16 @@ function getAliasDisplayLabel(alias: string): string {
   const config = vscode.workspace.getConfiguration('salesforceOrgQuickPick');
   const aliasLabels: { [key: string]: string } = config.get('aliasLabels', {});
   return aliasLabels[alias] || alias;
+}
+
+/**
+ * Gets the status bar alignment based on configuration
+ * @returns StatusBarAlignment.Right if alignStatusBarRight is true, otherwise StatusBarAlignment.Left
+ */
+function getStatusBarAlignment(): vscode.StatusBarAlignment {
+  const config = vscode.workspace.getConfiguration('salesforceOrgQuickPick');
+  const alignRight = config.get('alignStatusBarRight', false);
+  return alignRight ? vscode.StatusBarAlignment.Right : vscode.StatusBarAlignment.Left;
 }
 
 /**
@@ -643,12 +714,12 @@ function initializeExtension(context: vscode.ExtensionContext) {
   dedicatedManager.loadPersistedOrgs(aliasMap);
 
   // Create status bar item for opening current org (at the end of our block)
-  const openOrgItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 30.98);
+  let openOrgItem = vscode.window.createStatusBarItem(getStatusBarAlignment(), 30.98);
   openOrgItem.command = 'salesforce-org-quick-pick.openCurrentOrg';
   openOrgItem.tooltip = 'Open default org in browser';
 
   // Create status bar item for org switching (after dedicated items)
-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 30.97);
+  let statusBarItem = vscode.window.createStatusBarItem(getStatusBarAlignment(), 30.97);
   statusBarItem.command = 'salesforce-org-quick-pick.switchOrg';
 
   // Initial update from config
@@ -962,6 +1033,45 @@ function initializeExtension(context: vscode.ExtensionContext) {
       if (event.affectsConfiguration('salesforceOrgQuickPick.orgFilters')) {
         dedicatedManager.reorderItems();
         updateStatusBarFromConfig(statusBarItem, openOrgItem, dedicatedManager);
+      }
+
+      // If alignment changed, recreate all items at the new position
+      if (event.affectsConfiguration('salesforceOrgQuickPick.alignStatusBarRight')) {
+        // Store current state before disposing
+        const currentText = statusBarItem.text;
+        const currentTooltip = statusBarItem.tooltip;
+        const currentBackgroundColor = statusBarItem.backgroundColor;
+        const openOrgText = openOrgItem.text;
+
+        // Dispose old items
+        statusBarItem.hide();
+        statusBarItem.dispose();
+        openOrgItem.hide();
+        openOrgItem.dispose();
+
+        // Recreate items with new alignment
+        statusBarItem = vscode.window.createStatusBarItem(getStatusBarAlignment(), 30.97);
+        statusBarItem.command = 'salesforce-org-quick-pick.switchOrg';
+        statusBarItem.text = currentText;
+        statusBarItem.tooltip = currentTooltip;
+        statusBarItem.backgroundColor = currentBackgroundColor;
+
+        openOrgItem = vscode.window.createStatusBarItem(getStatusBarAlignment(), 30.98);
+        openOrgItem.command = 'salesforce-org-quick-pick.openCurrentOrg';
+        openOrgItem.tooltip = 'Open default org in browser';
+        openOrgItem.text = openOrgText;
+
+        // Recreate dedicated items with new alignment
+        dedicatedManager.reorderItems();
+
+        // Update the status bar
+        updateStatusBarFromConfig(statusBarItem, openOrgItem, dedicatedManager);
+
+        // Update subscriptions
+        context.subscriptions.splice(context.subscriptions.indexOf(statusBarItem), 1);
+        context.subscriptions.splice(context.subscriptions.indexOf(openOrgItem), 1);
+        context.subscriptions.push(statusBarItem);
+        context.subscriptions.push(openOrgItem);
       }
     }
   });
