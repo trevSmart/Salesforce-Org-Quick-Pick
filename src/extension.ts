@@ -72,6 +72,7 @@ class MainStatusBarManager {
 class DedicatedStatusBarManager {
   private context: vscode.ExtensionContext;
   private dedicatedItems: Map<string, vscode.StatusBarItem> = new Map();
+  private dedicatedUsernames: Map<string, string> = new Map();
   private itemOrders: Map<string, number> = new Map(); // Store order for each item
   private nextPriority = 40; // Start before main picker (dedicated items first)
 
@@ -97,7 +98,7 @@ class DedicatedStatusBarManager {
       mode === 'always' || (mode === 'whenDedicatedVisible' && hasAnyVisible);
 
     this.dedicatedItems.forEach((item, alias) => {
-      const username = aliasMap.get(alias);
+      const username = this.dedicatedUsernames.get(alias) || aliasMap.get(alias);
       const isCurrentOrg = username === currentDefaultOrg;
 
       if (isCurrentOrg && shouldHighlightDedicated) {
@@ -162,6 +163,7 @@ class DedicatedStatusBarManager {
     };
 
     this.dedicatedItems.set(alias, item);
+    this.dedicatedUsernames.set(alias, username);
     this.itemOrders.set(alias, order);
 
     // Update visibility based on filters (will show/hide accordingly)
@@ -180,6 +182,7 @@ class DedicatedStatusBarManager {
       item.hide();
       item.dispose();
       this.dedicatedItems.delete(alias);
+      this.dedicatedUsernames.delete(alias);
       this.itemOrders.delete(alias);
 
       // Persist the change
@@ -224,6 +227,29 @@ class DedicatedStatusBarManager {
   }
 
   /**
+   * Checks if the current org has a visible dedicated item by alias or username.
+   */
+  hasVisibleDedicatedItemForOrg(orgIdentifier: string, aliasMap: Map<string, string>): boolean {
+    if (!orgIdentifier) {
+      return false;
+    }
+
+    // Direct alias match
+    if (this.hasVisibleDedicatedItem(orgIdentifier)) {
+      return true;
+    }
+
+    // Username match against any visible dedicated item
+    return Array.from(this.dedicatedItems.keys()).some(alias => {
+      if (!this.hasVisibleDedicatedItem(alias)) {
+        return false;
+      }
+      const username = this.dedicatedUsernames.get(alias) || aliasMap.get(alias);
+      return username === orgIdentifier;
+    });
+  }
+
+  /**
    * Returns true if at least one dedicated item is visible (passes filter)
    */
   hasAnyVisibleDedicatedItem(): boolean {
@@ -254,8 +280,13 @@ class DedicatedStatusBarManager {
 
       const newItem = this.createStatusBarItem(newPriority);
       newItem.text = getAliasDisplayLabel(alias);
-      newItem.tooltip = item.tooltip;
-      newItem.command = item.command;
+      const username = this.dedicatedUsernames.get(alias) || alias;
+      newItem.tooltip = `Switch to ${alias} (${username})`;
+      newItem.command = {
+        command: 'salesforce-org-quick-pick.openDedicatedOrg',
+        arguments: [alias, username],
+        title: `Switch to ${alias} org`
+      };
 
       this.dedicatedItems.set(alias, newItem);
       this.itemOrders.set(alias, order);
@@ -319,6 +350,7 @@ class DedicatedStatusBarManager {
       item.dispose();
     });
     this.dedicatedItems.clear();
+    this.dedicatedUsernames.clear();
     this.itemOrders.clear();
   }
 }
@@ -567,16 +599,16 @@ function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgI
     // Check if it's an alias or username
     const { aliasMap } = getSalesforceAliases();
     const alias = Array.from(aliasMap.entries()).find(([_, username]) => username === defaultOrg)?.[0] || defaultOrg;
+    const hasVisibleDedicated = dedicatedManager ? dedicatedManager.hasVisibleDedicatedItemForOrg(defaultOrg, aliasMap) : false;
 
     // Check if we should hide the label when dedicated item exists and is visible
     const config = vscode.workspace.getConfiguration('salesforceOrgQuickPick');
-    const hideLabel = config.get('hideMainLabelWhenDedicatedExists', true) && dedicatedManager && dedicatedManager.hasVisibleDedicatedItem(alias);
+    const hideLabel = config.get('hideMainLabelWhenDedicatedExists', true) && hasVisibleDedicated;
     const displayLabel = getAliasDisplayLabel(alias);
     statusBarItem.text = hideLabel ? '$(cloud)' : `$(cloud) ${displayLabel}`;
 
     // Apply highlight color to main picker based on mode: only "always" highlights main when no dedicated visible
     const highlightMode = getHighlightMode();
-    const hasVisibleDedicated = dedicatedManager && dedicatedManager.hasVisibleDedicatedItem(alias);
     const shouldHighlightMain =
       highlightMode === 'always' && !hasVisibleDedicated;
     if (shouldHighlightMain) {
