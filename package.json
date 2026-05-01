@@ -2,7 +2,7 @@
   "name": "salesforce-org-quick-pick",
   "displayName": "Salesforce Org Quick Pick",
   "description": "Quickly switch between Salesforce orgs from the status bar without breaking your flow.",
-  "version": "0.0.71",
+  "version": "0.2.9",
   "license": "MIT",
   "author": "trevSmart",
   "publisher": "trevSmart",
@@ -32,7 +32,7 @@
     "switcher"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "workspaceContains:sfdx-project.json"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -53,18 +53,10 @@
           "default": [],
           "description": "Array of glob patterns to filter which Salesforce org aliases to show. If empty, all orgs are shown. Examples: 'DEV*', 'PROD', '*TEST*'"
         },
-        "salesforceOrgQuickPick.filterMode": {
-          "type": "string",
-          "enum": [
-            "include",
-            "exclude"
-          ],
-          "enumDescriptions": [
-            "Only show orgs that match the filter patterns",
-            "Show all orgs except those that match the filter patterns"
-          ],
-          "default": "include",
-          "description": "Whether to include or exclude orgs matching the filter patterns"
+        "salesforceOrgQuickPick.alignStatusBarRight": {
+          "type": "boolean",
+          "default": false,
+          "description": "Align the extension's status bar elements to the right side of the status bar instead of the left"
         },
         "salesforceOrgQuickPick.browser": {
           "type": "string",
@@ -93,7 +85,7 @@
         "salesforceOrgQuickPick.aliasLabels": {
           "type": "object",
           "default": {},
-          "description": "Map of org aliases to short labels for status bar display. If not specified, the full alias will be used. Example: {\"my-very-long-alias-name\": \"DEV\"}",
+          "description": "Map of org aliases to short labels for status bar elements. If not specified, the full alias will be used. Example: {\"my-very-long-alias-name\": \"DEV\"}",
           "patternProperties": {
             ".*": {
               "type": "string"
@@ -110,12 +102,34 @@
           "type": "boolean",
           "default": true,
           "description": "Show the open org button in the status bar to navigate to the default org in the browser"
+        },
+        "salesforceOrgQuickPick.highlightCurrentTargetOrgMode": {
+          "type": "string",
+          "enum": [
+            "never",
+            "whenDedicatedVisible",
+            "always"
+          ],
+          "enumDescriptions": [
+            "Never highlight",
+            "Highlight only when using dedicated buttons",
+            "Always highlight"
+          ],
+          "default": "always",
+          "description": "When to highlight the current target org in the status bar"
+        },
+        "salesforceOrgQuickPick.organizationsFirst": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the organization list at the top of the picker, with SFDX commands (Authorize, Create Scratch Org, etc.) at the bottom"
+        },
+        "salesforceOrgQuickPick.showOutputOnActivation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the extension output channel when the extension activates. Intended only for debugging the extension."
         }
       }
     }
-  },
-  "dependencies": {
-    "minimatch": "^10.1.1"
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -124,21 +138,21 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "bump-version": "node -e \"const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); const [major, minor, patch] = pkg.version.split('.').map(Number); pkg.version = major + '.' + minor + '.' + (patch + 1); fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2)); console.log('Version bumped to', pkg.version);\"",
-    "package": "npm run bump-version && mkdir -p dist && npx vsce package --out dist",
+    "package": "mkdir -p dist && npx vsce package --out dist",
     "clean": "rm -rf dist",
-    "install-extension": "npm run bump-version && npm run compile && npm run clean && npm run package && cursor --install-extension dist/salesforce-org-quick-pick-*.vsix --force"
+    "install-extension": "npm run compile && npm run clean && npm run package && cursor --install-extension dist/salesforce-org-quick-pick-*.vsix --force",
+    "version:patch": "npm version patch"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.1",
     "@types/node": "25.x",
-    "@types/vscode": "^1.64.0",
-    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@types/vscode": "^1.118.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.53.1",
     "@vscode/test-electron": "^2.2.3",
-    "eslint": "^9.39.2",
-    "glob": "^13.0.0",
+    "eslint": "^10.3.0",
+    "glob": "^13.0.6",
     "mocha": "^11.7.5",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

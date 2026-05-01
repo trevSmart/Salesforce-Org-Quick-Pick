@@ -1,146 +1,56 @@
 # Salesforce Org Quick Pick
 
-Quickly switch between Salesforce orgs from the status bar without breaking your flow.
+A replacement for the Salesforce Org Management status bar org picker.
+
+![Salesforce Org Quick Pick](resources/screenshot1.png)
 
 ## Features
 
-- **Status bar integration** for quick org switching
-- **Interactive tooltip** with clickable org aliases on hover
-- **Configurable filtering** with glob patterns and include/exclude modes
-- **Automatic sync** with Salesforce CLI default org
-- **Custom labels** for org aliases in status bar
-- **Browser integration** with multiple browser support
-- **Dedicated quick access items** for frequently used orgs
-- **Command center picker** with search functionality
-- **Cross-platform support** (macOS, Windows, Linux)
+- **Show only orgs relevant to the current project**
 
-## Configuration
+  Easily find the org you need by showing only those that are relevant to the current project.
 
-Configure the extension through VS Code settings (`Ctrl/Cmd + ,` and search for "Salesforce Org Quick Pick").
+- **Dedicated status bar buttons for your most used orgs**
 
-### Settings
+  Quickly switch to your most used orgs from dedicated status bar buttons without breaking your flow. To avoid cluttering your status bar:
+  - When a dedicated button fot the current org exists, the main picker label is hidden to save space.
+  - You can set short names for these buttons.
 
-- **`salesforceOrgQuickPick.orgFilters`**: Array of glob patterns to filter org aliases
+  ![Salesforce Org Quick Pick](resources/screenshot2.png)
+
+
+- **Choose the browser you want to use to open orgs**
+
+  Use your preferred browser to open Salesforce when different from the default one.
+
+- **Automatic sync with Salesforce Org Management**
+
+  The extension updates its UI when switching orgs via Salesforce Org Management picker.
+
+## Get started
+
+1. **Configure the extension through VS Code settings**
+
+2. **Replace the org picker**
+
+   Right click on the VS Code status bar, uncheck "Salesforce Org Management" and make sure "Salesforce Org Quick Pick" is checked.
+
+## Settings
+
+- **`salesforceOrgQuickPick.orgFilters`**: Array of glob patterns to filter org aliases (usually set at project level)
   - If empty, all orgs are shown
   - Examples: `"DEV*"`, `"PROD"`, `"*TEST*"`
 
-- **`salesforceOrgQuickPick.filterMode`**: Filter behavior
-  - `"include"` (default): Only show orgs that match the filter patterns
-  - `"exclude"`: Show all orgs except those that match the filter patterns
-
 - **`salesforceOrgQuickPick.browser`**: Browser to use when opening orgs
-  - `"default"`: Use system default browser
-  - `"chrome"`: Google Chrome
-  - `"firefox"`: Mozilla Firefox
-  - `"safari"`: Safari
   - `"edge"`: Microsoft Edge
 
-- **`salesforceOrgQuickPick.showTooltip`**: Show interactive tooltip on status bar hover
-  - `false` (default): Tooltip disabled
-  - `true`: Enable clickable tooltip with org aliases
-
-- **`salesforceOrgQuickPick.aliasLabels`**: Custom labels for org aliases
+- **`salesforceOrgQuickPick.aliasLabels`**: Custom labels for org aliases (usually set at project level)
   - Map long alias names to short display labels
   - Example: `{"my-very-long-alias-name": "DEV"}`
 
-- **`salesforceOrgQuickPick.hideMainLabelWhenDedicatedExists`**: Hide main picker when dedicated items exist
-  - `true` (default): Hide main picker when dedicated items are available
-  - `false`: Always show main picker
+- **`salesforceOrgQuickPick.hideMainLabelWhenDedicatedExists`**: Hide main picker label (the name of the current target org) when a dedicated item exists for the org
 
-- **`salesforceOrgQuickPick.showOpenOrgButton`**: Show browser open button in status bar
-  - `true` (default): Show button to open org in browser
-  - `false`: Hide browser open button
-
-### Example Configuration
-
-```json
-{
-  "salesforceOrgQuickPick.orgFilters": [
-    "DEV*",
-    "*TEST*"
-  ],
-  "salesforceOrgQuickPick.filterMode": "include",
-  "salesforceOrgQuickPick.browser": "chrome",
-  "salesforceOrgQuickPick.showTooltip": true,
-  "salesforceOrgQuickPick.aliasLabels": {
-    "my-production-org-alias": "PROD"
-  }
-}
-```
-
-This configuration shows only orgs starting with "DEV" or containing "TEST", uses Chrome for opening orgs, enables tooltips, and displays "PROD" instead of the full production alias.
-
-## How to Use
-
-### Status Bar
-- **No org selected**: Shows `Pick org`
-- **Org selected**: Shows `🔌 ALIAS_NAME 🪟`
-  - `🔌 ALIAS_NAME`: Click to switch orgs
-  - `🪟` (window icon): Click to open org in browser
-
-### Tooltip Interaction
-1. **Hover** over the status bar item to see available orgs
-2. **Click** on any org alias to switch immediately
-3. **Click** "Pick in command center" for full selector with search and detailed view
-
-### Browser Integration
-- **Window icon (🪟)**: Opens the default Salesforce org in your selected browser
-- Tooltip: "Open default org in browser"
-- Executes `sf org open` silently in the background (no terminal shown)
-- Supports multiple browsers via settings
-- Positioned to the right of the org picker
-- Only visible when an org is selected
-
-### Status Bar Layout
-```
-[🔌 ALIAS_NAME] [🪟]
-```
-
-### Tooltip Layout
-```
-┌─────────────────────────────────┐
-│   Salesforce Org Quick Pick     │ ← Centered title
-├─────────────────────────────────┤
-│ 🔌 [DEV_ORG]                    │ ← Clickable aliases (only)
-│ 🔌 [PROD_ORG]                   │
-│ 🔌 [TEST_ORG]                   │
-├─────────────────────────────────┤
-│ 📊 Pick in command center       │ ← Full selector
-└─────────────────────────────────┘
-```
-
-### Command Center Layout
-When you click "Pick in command center", you'll see:
-```
-Salesforce Org Quick Pick ← Extension title
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Search: [_________________________] ← Built-in search
-
-DEV_ORG          user@domain.com
-                 DEV_ORG - user@domain.com
-
-PROD_ORG         admin@prod.com
-                 PROD_ORG - admin@prod.com
-
-TEST_ORG         qa@test.com
-                 TEST_ORG - qa@test.com
-```
-
-- **Title**: "Salesforce Org Quick Pick" at the top
-- **Left**: Alias name
-- **Right**: Username
-- **Bottom**: Full "Alias - Username" format
-- **Search**: Works on both alias and username
-
-## Salesforce CLI Integration
-
-The extension automatically syncs with your Salesforce CLI configuration:
-
-- **Automatic detection**: Shows your current default org with a plug icon (🔌)
-- **Real-time updates**: Status bar updates automatically when you change orgs via CLI
-- **Persistent changes**: Selecting an org in the extension updates your CLI default
-- **No restarts needed**: Changes are reflected immediately across all tools
+- **`salesforceOrgQuickPick.showOpenOrgButton`**: Show _Open Org in browser_ button in status bar
 
 ## Development & Publishing
 
