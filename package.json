@@ -143,6 +143,10 @@
     "install-extension": "npm run compile && npm run clean && npm run package && cursor --install-extension dist/salesforce-org-quick-pick-*.vsix --force",
     "version:patch": "npm version patch"
   },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.5"
+  },
   "devDependencies": {
     "@types/mocha": "^10.0.1",
     "@types/node": "25.x",
