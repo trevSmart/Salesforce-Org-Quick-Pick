@@ -768,7 +768,7 @@ function initializeExtension(context: vscode.ExtensionContext) {
   // Watch for changes to the project config file
   let configWatcher: fs.StatWatcher | null = null;
   if (configFilePath) {
-    configWatcher = fs.watchFile(configFilePath, { persistent: true, interval: 500 }, (curr, prev) => {
+    configWatcher = fs.watchFile(configFilePath, { persistent: true, interval: 500 }, (curr: fs.Stats, prev: fs.Stats) => {
       if (curr.mtime !== prev.mtime) {
         log('Detected config file change, updating status bar');
         updateStatusBarFromConfig(statusBarItem, openOrgItem, dedicatedManager);
