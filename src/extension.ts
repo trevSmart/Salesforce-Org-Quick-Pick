@@ -2,7 +2,10 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 
 // Logging utility function
 function log(message: string) {
@@ -10,6 +13,71 @@ function log(message: string) {
   const outputChannel = (global as any).sfOrgOutputChannel as vscode.OutputChannel;
   if (outputChannel) {
     outputChannel.appendLine(`[SF Org Quick Pick] ${message}`);
+  }
+}
+
+// Ensures the login-shell PATH is resolved at most once per session.
+let shellPathApplied = false;
+
+/**
+ * Resolve the user's real PATH from their login shell and merge it into
+ * process.env.PATH, so `exec('sf ...')` can locate the Salesforce CLI.
+ *
+ * Why this is needed: GUI-launched hosts (notably Cursor started from the
+ * Dock/Finder on macOS) give the extension host only the minimal launchd PATH,
+ * without /usr/local/bin, /opt/homebrew/bin, or version-manager shims. As a
+ * result `sf` resolves to "command not found" even though it works fine in a
+ * terminal. A login + interactive shell sources the user's profile
+ * (path_helper, .zprofile, .zshrc) and reports the PATH the user actually has —
+ * which is what VS Code does internally. Best-effort and idempotent: a no-op on
+ * Windows and after the first call, and on any failure the existing PATH is
+ * left untouched.
+ */
+async function ensureShellPath(): Promise<void> {
+  if (shellPathApplied || process.platform === 'win32') {
+    return;
+  }
+  shellPathApplied = true;
+
+  const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
+  const START = '__SFQP_PATH_START__';
+  const END = '__SFQP_PATH_END__';
+
+  try {
+    // -i interactive, -l login, -c command: sources the profile/rc files where
+    // PATH is defined, then prints it wrapped in markers so noisy rc output
+    // cannot corrupt the value we read back.
+    const script = `printf '%s%s%s' '${START}' "$PATH" '${END}'`;
+    const { stdout } = await execFileAsync(shell, ['-ilc', script], {
+      timeout: 5000,
+      cwd: process.env.HOME || undefined,
+      env: process.env,
+    });
+
+    const match = stdout.match(new RegExp(`${START}([\\s\\S]*?)${END}`));
+    const shellPath = match && match[1] ? match[1].trim() : '';
+    if (!shellPath) {
+      log('Login shell did not report a PATH; keeping existing PATH');
+      return;
+    }
+
+    // Shell PATH is authoritative; keep current entries too, deduped, order preserved.
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const segment of [...shellPath.split(':'), ...(process.env.PATH || '').split(':')]) {
+      if (segment && !seen.has(segment)) {
+        seen.add(segment);
+        merged.push(segment);
+      }
+    }
+
+    const mergedPath = merged.join(':');
+    if (mergedPath !== process.env.PATH) {
+      process.env.PATH = mergedPath;
+      log(`PATH augmented from login shell (${shell})`);
+    }
+  } catch (error: any) {
+    log(`Login-shell PATH resolution failed (${error && error.message}); keeping existing PATH`);
   }
 }
 
@@ -1153,7 +1221,11 @@ function initializeExtension(context: vscode.ExtensionContext) {
   context.subscriptions.push(dedicatedManagerDisposable);
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
+  // Recover the user's real PATH from their login shell before any `sf` call.
+  // GUI-launched hosts (e.g. Cursor from the Dock) hand the extension host a
+  // minimal PATH that omits /usr/local/bin, so `sf` would be "command not found".
+  await ensureShellPath();
   initializeExtension(context);
 }
 
