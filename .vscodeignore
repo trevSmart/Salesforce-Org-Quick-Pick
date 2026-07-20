@@ -1,1 +1,31 @@
-node_modules
+# Dependencies and build tooling
+node_modules/**
+.vscode-test/**
+src/**
+**/*.ts
+**/*.map
+tsconfig.json
+eslint.config.js
+test-glob.js
+
+# Secrets and local env (CRITICAL: never ship these)
+.env
+.env.*
+
+# Dev / CI / editor config
+.vscode/**
+.github/**
+.claude/**
+.gitignore
+.gitleaksignore
+.gitleaks.toml
+gitleaks.toml
+
+# Internal docs and scripts (not for marketplace users)
+AGENTS.md
+PR_DESCRIPTION.md
+QUICK_START.md
+GITLEAKS_SETUP.md
+SECURITY_*.md
+remove-secrets.sh
+setup-gitleaks-hook.sh
