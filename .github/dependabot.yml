@@ -14,3 +14,10 @@ updates:
       prefix: "deps"
       prefix-development: "deps-dev"
       include: "scope"
+    ignore:
+      # Must not exceed engines.vscode (kept low for Cursor compatibility);
+      # vsce refuses to package otherwise. Bump together with engines.vscode.
+      - dependency-name: "@types/vscode"
+      # typescript-eslint does not support TypeScript >= 6.1 yet.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
