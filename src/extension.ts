@@ -186,9 +186,9 @@ class DedicatedStatusBarManager {
   /**
    * Loads persisted dedicated orgs and creates their status bar items
    */
-  loadPersistedOrgs(aliasMap: Map<string, string>) {
+  loadPersistedOrgs(aliasMap: Map<string, string>, readSucceeded: boolean) {
     this.persistedAliases = [...this.context.globalState.get<string[]>('salesforceOrgQuickPick.dedicatedOrgs', [])];
-    this.syncWithAliasMap(aliasMap);
+    this.syncWithAliasMap(aliasMap, readSucceeded);
   }
 
   /**
@@ -197,11 +197,12 @@ class DedicatedStatusBarManager {
    * username of re-authorized aliases and drops items whose alias no longer
    * exists. Pinned aliases are never removed from persistence here.
    * @param aliasMap Current alias-to-username map
+   * @param readSucceeded Whether alias.json was read successfully. On a failed
+   *   read (e.g. caught mid-write) the map is not trustworthy, so existing items
+   *   are kept instead of being wiped transiently.
    */
-  syncWithAliasMap(aliasMap: Map<string, string>) {
-    // An empty map usually means alias.json is missing or mid-write; keep the
-    // existing items rather than wiping them all transiently.
-    if (aliasMap.size > 0) {
+  syncWithAliasMap(aliasMap: Map<string, string>, readSucceeded: boolean) {
+    if (readSucceeded) {
       Array.from(this.dedicatedItems.keys()).forEach(alias => {
         if (!aliasMap.has(alias)) {
           this.disposeItem(alias);
@@ -692,11 +693,11 @@ function getCurrentDefaultOrg(): string | null {
  */
 function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgItem?: vscode.StatusBarItem, dedicatedManager?: DedicatedStatusBarManager) {
   const defaultOrg = getCurrentDefaultOrg();
-  const { aliasMap } = getSalesforceAliases();
+  const { aliasMap, readSucceeded } = getSalesforceAliases();
 
   // Keep dedicated items in sync with alias.json (new/removed aliases, re-authorized usernames)
   if (dedicatedManager) {
-    dedicatedManager.syncWithAliasMap(aliasMap);
+    dedicatedManager.syncWithAliasMap(aliasMap, readSucceeded);
   }
 
   // Always reset to normal state (remove warning colors)
@@ -777,19 +778,25 @@ function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgI
  * real org username. `sf alias set <alias> <alias>` (using an alias as the
  * value instead of a username) silently writes such an entry, and the
  * resulting alias never matches a connected org - so it must not be shown.
+ *
+ * Key membership alone is not proof: an alias may be named exactly like a real
+ * username (e.g. {"dev": "u@x.com", "u@x.com": "u@x.com"}). So a value that is
+ * also an alias key is only rejected when no auth file exists for it
+ * (`<authDir>/<username>.json`, where the CLI stores authorized orgs).
  * @param orgs Raw alias-to-value object from alias.json
+ * @param authDir Directory holding alias.json and the org auth files
  */
-function buildValidatedAliasMap(orgs: Record<string, unknown>): Map<string, string> {
+function buildValidatedAliasMap(orgs: Record<string, unknown>, authDir: string): Map<string, string> {
   const entries: [string, string][] = Object.entries(orgs).filter(
     (entry): entry is [string, string] =>
       entry[0].trim().length > 0 && typeof entry[1] === 'string' && entry[1].length > 0
   );
   const aliasKeys = new Set(entries.map(([alias]) => alias));
+  const isAuthorizedUsername = (value: string) => fs.existsSync(path.join(authDir, `${value}.json`));
 
   const aliasMap = new Map<string, string>();
   entries.forEach(([alias, value]) => {
-    // A real username is never itself another alias in this same file.
-    if (aliasKeys.has(value)) {
+    if (aliasKeys.has(value) && !isAuthorizedUsername(value)) {
       log(`Ignoring alias "${alias}": value "${value}" is another alias, not a username`);
       return;
     }
@@ -798,54 +805,48 @@ function buildValidatedAliasMap(orgs: Record<string, unknown>): Map<string, stri
   return aliasMap;
 }
 
+interface AliasReadResult {
+  aliases: string[];
+  aliasMap: Map<string, string>;
+  // false when alias.json exists but could not be read or parsed (e.g. caught
+  // mid-write). A missing file or an empty `orgs` object is a successful read.
+  readSucceeded: boolean;
+}
+
 /**
  * Reads and parses Salesforce org aliases from ~/.sfdx/alias.json
- * @returns Object with sorted aliases array and alias-to-username map
+ * @returns Sorted aliases, alias-to-username map and whether the read succeeded
  */
-function getSalesforceAliases(): { aliases: string[], aliasMap: Map<string, string> } {
+function getSalesforceAliases(): AliasReadResult {
+  const homeDir = os.homedir();
+  const candidatePaths = [
+    path.join(homeDir, '.sfdx', 'alias.json'),
+    // Alternative locations
+    path.join(homeDir, 'sfdx', 'alias.json'),
+    path.join(process.env.USERPROFILE || homeDir, '.sfdx', 'alias.json'),
+    path.join(process.env.HOME || homeDir, '.sfdx', 'alias.json')
+  ];
+  const aliasFilePath = candidatePaths.find(candidate => fs.existsSync(candidate));
+
+  if (!aliasFilePath) {
+    // No alias file at all: definitively no aliases
+    return { aliases: [], aliasMap: new Map(), readSucceeded: true };
+  }
+
   try {
-    const homeDir = os.homedir();
-    const aliasFilePath = path.join(homeDir, '.sfdx', 'alias.json');
-
-    if (!fs.existsSync(aliasFilePath)) {
-      // Try alternative locations
-      const altLocations = [
-        path.join(homeDir, 'sfdx', 'alias.json'),
-        path.join(process.env.USERPROFILE || homeDir, '.sfdx', 'alias.json'),
-        path.join(process.env.HOME || homeDir, '.sfdx', 'alias.json')
-      ];
-
-      for (const altPath of altLocations) {
-        if (fs.existsSync(altPath)) {
-          const altAliasContent = fs.readFileSync(altPath, 'utf8');
-          const altAliasData = JSON.parse(altAliasContent);
-
-          if (altAliasData.orgs && typeof altAliasData.orgs === 'object') {
-            const altAliasMap = buildValidatedAliasMap(altAliasData.orgs);
-            const altAliases = Array.from(altAliasMap.keys()).sort();
-            return { aliases: altAliases, aliasMap: altAliasMap };
-          }
-        }
-      }
-
-      return { aliases: [], aliasMap: new Map() };
-    }
-
-    const aliasContent = fs.readFileSync(aliasFilePath, 'utf8');
-    const aliasData = JSON.parse(aliasContent);
+    const aliasData = JSON.parse(fs.readFileSync(aliasFilePath, 'utf8'));
 
     if (!aliasData.orgs || typeof aliasData.orgs !== 'object') {
-      return { aliases: [], aliasMap: new Map() };
+      return { aliases: [], aliasMap: new Map(), readSucceeded: true };
     }
 
     // Extract alias names and create map, then sort alphabetically
-    const aliasMap = buildValidatedAliasMap(aliasData.orgs);
-
+    const aliasMap = buildValidatedAliasMap(aliasData.orgs, path.dirname(aliasFilePath));
     const aliases = Array.from(aliasMap.keys()).sort();
-    return { aliases, aliasMap };
+    return { aliases, aliasMap, readSucceeded: true };
   } catch (error) {
     log(`Error reading Salesforce aliases: ${error}`);
-    return { aliases: [], aliasMap: new Map() };
+    return { aliases: [], aliasMap: new Map(), readSucceeded: false };
   }
 }
 
@@ -868,14 +869,14 @@ function initializeExtension(context: vscode.ExtensionContext) {
   }
 
   // Get Salesforce aliases and username mapping
-  const { aliases: allAliases, aliasMap } = getSalesforceAliases();
+  const { aliases: allAliases, aliasMap, readSucceeded: aliasReadSucceeded } = getSalesforceAliases();
 
   // Apply filters based on configuration
   const filteredAliases = filterAliases(allAliases);
 
   // Create dedicated status bar manager
   const dedicatedManager = new DedicatedStatusBarManager(context);
-  dedicatedManager.loadPersistedOrgs(aliasMap);
+  dedicatedManager.loadPersistedOrgs(aliasMap, aliasReadSucceeded);
 
   // Create status bar item for opening current org (at the end of our block)
   let openOrgItem = vscode.window.createStatusBarItem(getStatusBarAlignment(), 30.98);
