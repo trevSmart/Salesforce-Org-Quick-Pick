@@ -142,6 +142,10 @@ class DedicatedStatusBarManager {
   private dedicatedItems: Map<string, vscode.StatusBarItem> = new Map();
   private dedicatedUsernames: Map<string, string> = new Map();
   private itemOrders: Map<string, number> = new Map(); // Store order for each item
+  // Aliases the user pinned as dedicated items. Source of truth for persistence:
+  // an alias stays here even while it is missing from alias.json, so a transient
+  // absence never deletes the user's choice.
+  private persistedAliases: string[] = [];
   private nextPriority = 40; // Start before main picker (dedicated items first)
 
   constructor(context: vscode.ExtensionContext) {
@@ -166,8 +170,8 @@ class DedicatedStatusBarManager {
       mode === 'always' || (mode === 'whenDedicatedVisible' && hasAnyVisible);
 
     this.dedicatedItems.forEach((item, alias) => {
-      const username = this.dedicatedUsernames.get(alias) || aliasMap.get(alias);
-      const isCurrentOrg = username === currentDefaultOrg;
+      const username = aliasMap.get(alias) || this.dedicatedUsernames.get(alias);
+      const isCurrentOrg = currentDefaultOrg !== null && username === currentDefaultOrg;
 
       if (isCurrentOrg && shouldHighlightDedicated) {
         item.text = `$(plug) ${getAliasDisplayLabel(alias)}`;
@@ -183,27 +187,41 @@ class DedicatedStatusBarManager {
    * Loads persisted dedicated orgs and creates their status bar items
    */
   loadPersistedOrgs(aliasMap: Map<string, string>) {
-    const persistedOrgs = this.context.globalState.get<string[]>('salesforceOrgQuickPick.dedicatedOrgs', []);
-    const filters = getNormalizedOrgFilters();
+    this.persistedAliases = [...this.context.globalState.get<string[]>('salesforceOrgQuickPick.dedicatedOrgs', [])];
+    this.syncWithAliasMap(aliasMap);
+  }
 
-    // Sort persisted orgs by their order in the filters array
-    const sortedOrgs = persistedOrgs.sort((a, b) => {
-      const indexA = filters.findIndex(f => simpleGlobMatch(a, f));
-      const indexB = filters.findIndex(f => simpleGlobMatch(b, f));
-      // If not found in filters, put at the end (index -1 becomes a large number)
-      const orderA = indexA === -1 ? Number.MAX_SAFE_INTEGER : indexA;
-      const orderB = indexB === -1 ? Number.MAX_SAFE_INTEGER : indexB;
-      return orderA - orderB;
-    });
+  /**
+   * Reconciles the dedicated items with the current alias.json contents:
+   * creates items for pinned aliases that became available, refreshes the
+   * username of re-authorized aliases and drops items whose alias no longer
+   * exists. Pinned aliases are never removed from persistence here.
+   * @param aliasMap Current alias-to-username map
+   */
+  syncWithAliasMap(aliasMap: Map<string, string>) {
+    // An empty map usually means alias.json is missing or mid-write; keep the
+    // existing items rather than wiping them all transiently.
+    if (aliasMap.size > 0) {
+      Array.from(this.dedicatedItems.keys()).forEach(alias => {
+        if (!aliasMap.has(alias)) {
+          this.disposeItem(alias);
+        }
+      });
+    }
 
-    sortedOrgs.forEach(alias => {
-      if (aliasMap.has(alias)) {
-        this.addDedicatedItem(alias, aliasMap.get(alias)!);
+    this.persistedAliases.forEach(alias => {
+      const username = aliasMap.get(alias);
+      if (!username) {
+        return;
+      }
+      const item = this.dedicatedItems.get(alias);
+      if (!item) {
+        this.createItem(alias, username);
+      } else if (this.dedicatedUsernames.get(alias) !== username) {
+        this.dedicatedUsernames.set(alias, username);
+        this.applyItemDetails(item, alias, username);
       }
     });
-
-    // Update visibility based on filters after loading
-    this.updateVisibilityBasedOnFilters();
   }
 
   /**
@@ -214,6 +232,27 @@ class DedicatedStatusBarManager {
       return; // Already exists
     }
 
+    if (!this.persistedAliases.includes(alias)) {
+      this.persistedAliases.push(alias);
+      this.persistDedicatedOrgs();
+    }
+    this.createItem(alias, username);
+  }
+
+  /**
+   * Removes a dedicated status bar item
+   */
+  removeDedicatedItem(alias: string) {
+    this.disposeItem(alias);
+    this.persistedAliases = this.persistedAliases.filter(a => a !== alias);
+    this.persistDedicatedOrgs();
+  }
+
+  /**
+   * Creates and shows (subject to filters) the status bar item for an alias.
+   * Does not touch persistence.
+   */
+  private createItem(alias: string, username: string) {
     const filters = getNormalizedOrgFilters();
     const order = filters.findIndex(f => simpleGlobMatch(alias, f));
 
@@ -223,12 +262,7 @@ class DedicatedStatusBarManager {
 
     const item = this.createStatusBarItem(priority);
     item.text = getAliasDisplayLabel(alias);
-    item.tooltip = `Switch to ${alias} (${username})`;
-    item.command = {
-      command: 'salesforce-org-quick-pick.openDedicatedOrg',
-      arguments: [alias, username],
-      title: `Switch to ${alias} org`
-    };
+    this.applyItemDetails(item, alias, username);
 
     this.dedicatedItems.set(alias, item);
     this.dedicatedUsernames.set(alias, username);
@@ -236,26 +270,32 @@ class DedicatedStatusBarManager {
 
     // Update visibility based on filters (will show/hide accordingly)
     this.updateVisibilityForItem(alias);
-
-    // Persist the change
-    this.persistDedicatedOrgs();
   }
 
   /**
-   * Removes a dedicated status bar item
+   * Sets the tooltip and click command of a dedicated item
    */
-  removeDedicatedItem(alias: string) {
+  private applyItemDetails(item: vscode.StatusBarItem, alias: string, username: string) {
+    item.tooltip = `Switch to ${alias} (${username})`;
+    item.command = {
+      command: 'salesforce-org-quick-pick.openDedicatedOrg',
+      arguments: [alias, username],
+      title: `Switch to ${alias} org`
+    };
+  }
+
+  /**
+   * Hides and disposes the status bar item of an alias. Does not touch persistence.
+   */
+  private disposeItem(alias: string) {
     const item = this.dedicatedItems.get(alias);
     if (item) {
       item.hide();
       item.dispose();
-      this.dedicatedItems.delete(alias);
-      this.dedicatedUsernames.delete(alias);
-      this.itemOrders.delete(alias);
-
-      // Persist the change
-      this.persistDedicatedOrgs();
     }
+    this.dedicatedItems.delete(alias);
+    this.dedicatedUsernames.delete(alias);
+    this.itemOrders.delete(alias);
   }
 
   /**
@@ -328,8 +368,7 @@ class DedicatedStatusBarManager {
    * Persists the list of dedicated orgs to global state
    */
   private persistDedicatedOrgs() {
-    const dedicatedOrgs = Array.from(this.dedicatedItems.keys());
-    this.context.globalState.update('salesforceOrgQuickPick.dedicatedOrgs', dedicatedOrgs);
+    this.context.globalState.update('salesforceOrgQuickPick.dedicatedOrgs', [...this.persistedAliases]);
   }
 
   /**
@@ -348,13 +387,7 @@ class DedicatedStatusBarManager {
 
       const newItem = this.createStatusBarItem(newPriority);
       newItem.text = getAliasDisplayLabel(alias);
-      const username = this.dedicatedUsernames.get(alias) || alias;
-      newItem.tooltip = `Switch to ${alias} (${username})`;
-      newItem.command = {
-        command: 'salesforce-org-quick-pick.openDedicatedOrg',
-        arguments: [alias, username],
-        title: `Switch to ${alias} org`
-      };
+      this.applyItemDetails(newItem, alias, this.dedicatedUsernames.get(alias) || alias);
 
       this.dedicatedItems.set(alias, newItem);
       this.itemOrders.set(alias, order);
@@ -659,13 +692,18 @@ function getCurrentDefaultOrg(): string | null {
  */
 function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgItem?: vscode.StatusBarItem, dedicatedManager?: DedicatedStatusBarManager) {
   const defaultOrg = getCurrentDefaultOrg();
+  const { aliasMap } = getSalesforceAliases();
+
+  // Keep dedicated items in sync with alias.json (new/removed aliases, re-authorized usernames)
+  if (dedicatedManager) {
+    dedicatedManager.syncWithAliasMap(aliasMap);
+  }
 
   // Always reset to normal state (remove warning colors)
   statusBarItem.backgroundColor = undefined;
 
   if (defaultOrg) {
     // Check if it's an alias or username
-    const { aliasMap } = getSalesforceAliases();
     const alias = Array.from(aliasMap.entries()).find(([_, username]) => username === defaultOrg)?.[0] || defaultOrg;
     const hasVisibleDedicated = dedicatedManager ? dedicatedManager.hasVisibleDedicatedItemForOrg(defaultOrg, aliasMap) : false;
 
@@ -689,7 +727,7 @@ function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgI
     if (openOrgItem) {
       const showOpenOrgButton = config.get('showOpenOrgButton', true);
       if (showOpenOrgButton) {
-        openOrgItem.text = '$(window)';
+        openOrgItem.text = '$(globe)';
         openOrgItem.show();
       } else {
         openOrgItem.hide();
@@ -710,6 +748,11 @@ function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgI
     if (openOrgItem) {
       openOrgItem.hide();
     }
+
+    // No current org: clear any highlight left on dedicated items
+    if (dedicatedManager) {
+      dedicatedManager.updateIcons(null, aliasMap);
+    }
   }
 
   // Show status bar
@@ -726,6 +769,33 @@ function updateStatusBarFromConfig(statusBarItem: vscode.StatusBarItem, openOrgI
   } else {
     statusBarItem.tooltip = undefined;
   }
+}
+
+/**
+ * Builds an alias-to-username map from the raw `orgs` object in alias.json,
+ * dropping entries whose "username" is actually another alias rather than a
+ * real org username. `sf alias set <alias> <alias>` (using an alias as the
+ * value instead of a username) silently writes such an entry, and the
+ * resulting alias never matches a connected org - so it must not be shown.
+ * @param orgs Raw alias-to-value object from alias.json
+ */
+function buildValidatedAliasMap(orgs: Record<string, unknown>): Map<string, string> {
+  const entries: [string, string][] = Object.entries(orgs).filter(
+    (entry): entry is [string, string] =>
+      entry[0].trim().length > 0 && typeof entry[1] === 'string' && entry[1].length > 0
+  );
+  const aliasKeys = new Set(entries.map(([alias]) => alias));
+
+  const aliasMap = new Map<string, string>();
+  entries.forEach(([alias, value]) => {
+    // A real username is never itself another alias in this same file.
+    if (aliasKeys.has(value)) {
+      log(`Ignoring alias "${alias}": value "${value}" is another alias, not a username`);
+      return;
+    }
+    aliasMap.set(alias, value);
+  });
+  return aliasMap;
 }
 
 /**
@@ -751,10 +821,7 @@ function getSalesforceAliases(): { aliases: string[], aliasMap: Map<string, stri
           const altAliasData = JSON.parse(altAliasContent);
 
           if (altAliasData.orgs && typeof altAliasData.orgs === 'object') {
-            const altAliasMap = new Map<string, string>();
-            Object.entries(altAliasData.orgs).forEach(([alias, username]) => {
-              altAliasMap.set(alias, username as string);
-            });
+            const altAliasMap = buildValidatedAliasMap(altAliasData.orgs);
             const altAliases = Array.from(altAliasMap.keys()).sort();
             return { aliases: altAliases, aliasMap: altAliasMap };
           }
@@ -772,10 +839,7 @@ function getSalesforceAliases(): { aliases: string[], aliasMap: Map<string, stri
     }
 
     // Extract alias names and create map, then sort alphabetically
-    const aliasMap = new Map<string, string>();
-    Object.entries(aliasData.orgs).forEach(([alias, username]) => {
-      aliasMap.set(alias, username as string);
-    });
+    const aliasMap = buildValidatedAliasMap(aliasData.orgs);
 
     const aliases = Array.from(aliasMap.keys()).sort();
     return { aliases, aliasMap };
@@ -905,7 +969,7 @@ function initializeExtension(context: vscode.ExtensionContext) {
           detail: username,
           iconPath: new vscode.ThemeIcon(isCurrentTargetOrg ? 'plug' : 'cloud'),
           buttons: [
-            { iconPath: new vscode.ThemeIcon('window'), tooltip: 'Open org in browser' },
+            { iconPath: new vscode.ThemeIcon('globe'), tooltip: 'Open org in browser' },
             {
               iconPath: dedicatedManager.hasDedicatedItem(alias) ? new vscode.ThemeIcon('remove') : new vscode.ThemeIcon('add'),
               tooltip: dedicatedManager.hasDedicatedItem(alias) ? 'Remove dedicated button from the status bar' : 'Add dedicated button to the status bar'
@@ -992,6 +1056,8 @@ function initializeExtension(context: vscode.ExtensionContext) {
           } else if (buttonIndex === 1) {
             // Second button: Toggle dedicated quick access
             dedicatedManager.toggleDedicatedItem(alias, username);
+            // Recompute highlight, main label and dedicated icons for the new set of items
+            updateStatusBarFromConfig(statusBarItem, openOrgItem, dedicatedManager);
             // Update the quick pick to reflect the change
             quickPick.items = quickPick.items.map(item => {
               if (item.label === alias) {
@@ -1142,6 +1208,8 @@ function initializeExtension(context: vscode.ExtensionContext) {
         const currentTooltip = statusBarItem.tooltip;
         const currentBackgroundColor = statusBarItem.backgroundColor;
         const openOrgText = openOrgItem.text;
+        const oldStatusBarItem = statusBarItem;
+        const oldOpenOrgItem = openOrgItem;
 
         // Dispose old items
         statusBarItem.hide();
@@ -1167,11 +1235,21 @@ function initializeExtension(context: vscode.ExtensionContext) {
         // Update the status bar
         updateStatusBarFromConfig(statusBarItem, openOrgItem, dedicatedManager);
 
-        // Update subscriptions
-        context.subscriptions.splice(context.subscriptions.indexOf(statusBarItem), 1);
-        context.subscriptions.splice(context.subscriptions.indexOf(openOrgItem), 1);
-        context.subscriptions.push(statusBarItem);
-        context.subscriptions.push(openOrgItem);
+        // Replace the disposed items in subscriptions. indexOf must use the OLD
+        // references: the new items are not registered yet, and indexOf(-1) with
+        // splice would remove an unrelated subscription.
+        const replacements: [vscode.StatusBarItem, vscode.StatusBarItem][] = [
+          [oldStatusBarItem, statusBarItem],
+          [oldOpenOrgItem, openOrgItem]
+        ];
+        replacements.forEach(([oldItem, newItem]) => {
+          const index = context.subscriptions.indexOf(oldItem);
+          if (index !== -1) {
+            context.subscriptions.splice(index, 1, newItem);
+          } else {
+            context.subscriptions.push(newItem);
+          }
+        });
       }
     }
   });
